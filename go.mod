@@ -1,5 +1,6 @@
 module github.com/fsodogandji/alpaca-trade-api-go/v3
 
+
 go 1.20
 
 require (
