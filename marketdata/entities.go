@@ -22,6 +22,8 @@ const (
 	IEX Feed = "iex"
 	// OTC includes Over-the-Counter exchanges
 	OTC Feed = "otc"
+	// TEST stream
+	TEST Feed = "test"
 )
 
 // CryptoFeed defines the source feed of crypto data.
