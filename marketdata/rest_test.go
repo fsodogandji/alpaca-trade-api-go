@@ -1337,7 +1337,7 @@ func TestGetCorporateActions(t *testing.T) {
 	}`
 	c := DefaultClient
 	c.do = func(_ *Client, req *http.Request) (*http.Response, error) {
-		assert.Equal(t, "/v1beta1/corporate-actions", req.URL.Path)
+		assert.Equal(t, "/v1/corporate-actions", req.URL.Path)
 		assert.Equal(t, "forward_split,name_change,worthless_removal,stock_merger",
 			req.URL.Query().Get("types"))
 		assert.Equal(t, "2024-03-10", req.URL.Query().Get("start"))
@@ -1387,4 +1387,100 @@ func TestGetCorporateActions(t *testing.T) {
 	if assert.Len(t, got.WorthlessRemovals, 2) {
 		assert.Equal(t, "EACPW", got.WorthlessRemovals[0].Symbol)
 	}
+}
+
+func TestLatestCryptoPerpBar(t *testing.T) {
+	c := DefaultClient
+	c.do = mockResp(`{"bars": {"BTC-PERP": {"c": 101785.3,"h": 101807.9,"l": 101762.8,"n": 314,"o": 101789.1,"t": "2024-12-19T09:52:00Z","v": 25.9751,"vw": 101783.9767854599}}}`)
+	got, err := c.GetLatestCryptoPerpBar("BTC-PERP", GetLatestCryptoBarRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, CryptoPerpBar{
+		Timestamp:  time.Date(2024, 12, 19, 9, 52, 0, 0, time.UTC),
+		Open:       101789.1,
+		High:       101807.9,
+		Low:        101762.8,
+		Close:      101785.3,
+		Volume:     25.9751,
+		TradeCount: 314,
+		VWAP:       101783.9767854599,
+	}, *got)
+}
+
+func TestLatestCryptoPerpTrade(t *testing.T) {
+	c := DefaultClient
+	c.do = mockResp(`{"trades": {"BTC-PERP": {"i": 1805227019,"p": 101761.4,"s": 0.0011,"t": "2024-12-19T09:33:36.311Z","tks": "B"}}}`)
+	got, err := c.GetLatestCryptoPerpTrade("BTC-PERP", GetLatestCryptoTradeRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, CryptoPerpTrade{
+		ID:        1805227019,
+		Price:     101761.4,
+		Size:      0.0011,
+		Timestamp: time.Date(2024, 12, 19, 9, 33, 36, 311000000, time.UTC),
+		TakerSide: "B",
+	}, *got)
+}
+
+func TestLatestCryptoPerpTrades(t *testing.T) {
+	c := DefaultClient
+	c.do = mockResp(`{"trades": {"ETH-PERP": {"i": 1028100310,"p": 3678.81,"s": 0.01,"t": "2024-12-19T10:16:20.124Z","tks": "B"},"BTC-PERP": {"i": 1805344202,"p": 101868,"s": 0.0009,"t": "2024-12-19T10:16:19.31Z","tks": "S"}}}`)
+	got, err := c.GetLatestCryptoPerpTrades([]string{"BTC-PERP", "ETH-PERP"}, GetLatestCryptoTradeRequest{})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, CryptoPerpTrade{
+		Price:     101868,
+		Size:      0.0009,
+		Timestamp: time.Date(2024, 12, 19, 10, 16, 19, 310000000, time.UTC),
+		TakerSide: "S",
+		ID:        1805344202,
+	}, got["BTC-PERP"])
+	assert.Equal(t, 3678.81, got["ETH-PERP"].Price)
+}
+
+func TestLatestCryptoPerpQuote(t *testing.T) {
+	c := DefaultClient
+	c.do = mockResp(`{"quotes": {"BTC-PERP": {"ap": 101675.1,"as": 3.087,"bp": 101674.7,"bs": 1.4496,"t": "2024-12-19T09:43:04.092Z"}}}`)
+	got, err := c.GetLatestCryptoPerpQuote("BTC-PERP", GetLatestCryptoQuoteRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, CryptoPerpQuote{
+		Timestamp: time.Date(2024, 12, 19, 9, 43, 0o4, 92000000, time.UTC),
+		BidPrice:  101674.7,
+		BidSize:   1.4496,
+		AskPrice:  101675.1,
+		AskSize:   3.087,
+	}, *got)
+}
+
+func TestLatestCryptoPerpQuotes(t *testing.T) {
+	c := DefaultClient
+	c.do = mockResp(`{"quotes": {"ETH-PERP": {"ap": 3676.89,"as": 38.655,"bp": 3676.82,"bs": 36.765,"t": "2024-12-19T10:15:50.436Z"},"BTC-PERP": {"ap": 101851.3,"as": 1.2372,"bp": 101850.9,"bs": 1.9428,"t": "2024-12-19T10:15:50.438Z"}}}`)
+	got, err := c.GetLatestCryptoPerpQuotes([]string{"BTC-PERP", "ETH-PERP"}, GetLatestCryptoQuoteRequest{})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, CryptoPerpQuote{
+		Timestamp: time.Date(2024, 12, 19, 10, 15, 50, 436000000, time.UTC),
+		BidPrice:  3676.82,
+		BidSize:   36.765,
+		AskPrice:  3676.89,
+		AskSize:   38.655,
+	}, got["ETH-PERP"])
+	assert.Equal(t, 1.9428, got["BTC-PERP"].BidSize)
+}
+
+func TestGetLatestCryptoPerpPricing(t *testing.T) {
+	c := DefaultClient
+	c.do = mockResp(`{"pricing": {"BTC-PERP": {"t": "2024-12-19T09:33:36.311Z", "ft": "2024-12-19T10:33:36.311Z", "oi": 90.7367, "ip": 50702.8, "mp": 50652.3553, "fr": 0.000565699}}}`)
+	got, err := c.GetLatestCryptoPerpPricing("BTC-PERP", GetLatestCryptoPerpPricingRequest{})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, CryptoPerpPricing{
+		IndexPrice:      50702.8,
+		MarkPrice:       50652.3553,
+		OpenInterest:    90.7367,
+		FundingRate:     0.000565699,
+		Timestamp:       time.Date(2024, 12, 19, 9, 33, 36, 311000000, time.UTC),
+		NextFundingTime: time.Date(2024, 12, 19, 10, 33, 36, 311000000, time.UTC),
+	}, *got)
 }

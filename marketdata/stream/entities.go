@@ -19,6 +19,18 @@ type Trade struct {
 	Timestamp  time.Time
 	Conditions []string
 	Tape       string
+
+	internal tradeInternal
+}
+
+type tradeInternal struct {
+	ReceivedAt time.Time
+}
+
+// Internal contains internal fields. There aren't any behavioural or backward compatibility
+// promises for them: they can be empty or removed in the future. You should not use them at all.
+func (t Trade) Internal() tradeInternal { //nolint:revive // We intentionally return an unexported struct here
+	return t.internal
 }
 
 // Quote is a stock quote from the market
@@ -33,6 +45,18 @@ type Quote struct {
 	Timestamp   time.Time
 	Conditions  []string
 	Tape        string
+
+	internal quoteInternal
+}
+
+type quoteInternal struct {
+	ReceivedAt time.Time
+}
+
+// Internal contains internal fields. There aren't any behavioural or backward compatibility
+// promises for them: they can be empty or removed in the future. You should not use them at all.
+func (q Quote) Internal() quoteInternal { //nolint:revive // We intentionally return an unexported struct here
+	return q.internal
 }
 
 // Bar is an aggregate of trades
@@ -57,6 +81,14 @@ type TradingStatus struct {
 	ReasonMsg  string
 	Timestamp  time.Time
 	Tape       string
+}
+
+// Imbalance is an order imbalance message during LULD halts for a security
+type Imbalance struct {
+	Symbol    string
+	Price     float64
+	Timestamp time.Time
+	Tape      string
 }
 
 // LULD is a Limit Up Limit Down message
@@ -142,11 +174,6 @@ type CryptoOrderbookEntry struct {
 	Size  float64
 }
 
-type CryptoPerpTrade CryptoTrade
-type CryptoPerpQuote CryptoQuote
-type CryptoPerpBar CryptoBar
-type CryptoPerpOrderbook CryptoOrderbook
-
 // OptionTrade is an option trade that happened on the market
 type OptionTrade struct {
 	Symbol    string
@@ -199,4 +226,15 @@ func (e errorMessage) Error() string {
 	}
 
 	return e.msg
+}
+
+type CryptoPerpPricing struct {
+	Symbol          string
+	Timestamp       time.Time
+	Exchange        string
+	IndexPrice      float64
+	MarkPrice       float64
+	FundingRate     float64
+	OpenInterest    float64
+	NextFundingTime time.Time
 }

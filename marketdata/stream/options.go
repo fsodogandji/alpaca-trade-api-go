@@ -176,6 +176,7 @@ type stockOptions struct {
 	updatedBarHandler    func(Bar)
 	dailyBarHandler      func(Bar)
 	tradingStatusHandler func(TradingStatus)
+	imbalanceHandler     func(Imbalance)
 	luldHandler          func(LULD)
 	cancelErrorHandler   func(TradeCancelError)
 	correctionHandler    func(TradeCorrection)
@@ -206,6 +207,7 @@ func defaultStockOptions() *stockOptions {
 				updatedBars:  []string{},
 				dailyBars:    []string{},
 				statuses:     []string{},
+				imbalances:   []string{},
 				lulds:        []string{},
 				cancelErrors: []string{},
 				corrections:  []string{},
@@ -218,6 +220,7 @@ func defaultStockOptions() *stockOptions {
 		updatedBarHandler:    func(_ Bar) {},
 		dailyBarHandler:      func(_ Bar) {},
 		tradingStatusHandler: func(_ TradingStatus) {},
+		imbalanceHandler:     func(_ Imbalance) {},
 		luldHandler:          func(_ LULD) {},
 		cancelErrorHandler:   func(_ TradeCancelError) {},
 		correctionHandler:    func(_ TradeCorrection) {},
@@ -292,6 +295,14 @@ func WithStatuses(handler func(TradingStatus), symbols ...string) StockOption {
 	})
 }
 
+// WithImbalances configures initial imbalance handler.
+func WithImbalances(handler func(Imbalance), symbols ...string) StockOption {
+	return newFuncStockOption(func(o *stockOptions) {
+		o.sub.imbalances = symbols
+		o.imbalanceHandler = handler
+	})
+}
+
 // WithLULDs configures initial LULD symbols to subscribe to and the handler
 func WithLULDs(handler func(LULD), symbols ...string) StockOption {
 	return newFuncStockOption(func(o *stockOptions) {
@@ -326,6 +337,7 @@ type cryptoOptions struct {
 	updatedBarHandler func(CryptoBar)
 	dailyBarHandler   func(CryptoBar)
 	orderbookHandler  func(CryptoOrderbook)
+	pricingHandler    func(CryptoPerpPricing)
 }
 
 // defaultCryptoOptions are the default options for a client.
@@ -363,6 +375,7 @@ func defaultCryptoOptions() *cryptoOptions {
 		updatedBarHandler: func(_ CryptoBar) {},
 		dailyBarHandler:   func(_ CryptoBar) {},
 		orderbookHandler:  func(_ CryptoOrderbook) {},
+		pricingHandler:    func(_ CryptoPerpPricing) {},
 	}
 }
 
@@ -391,6 +404,14 @@ func WithCryptoTrades(handler func(CryptoTrade), symbols ...string) CryptoOption
 	return newFuncCryptoOption(func(o *cryptoOptions) {
 		o.sub.trades = symbols
 		o.tradeHandler = handler
+	})
+}
+
+// WithCryptoPerpPricing configures initial pricing symbols to subscribe to and the handler
+func WithCryptoPerpPricing(handler func(CryptoPerpPricing), symbols ...string) CryptoOption {
+	return newFuncCryptoOption(func(o *cryptoOptions) {
+		o.sub.pricing = symbols
+		o.pricingHandler = handler
 	})
 }
 
@@ -431,66 +452,6 @@ func WithCryptoOrderbooks(handler func(CryptoOrderbook), symbols ...string) Cryp
 	return newFuncCryptoOption(func(o *cryptoOptions) {
 		o.sub.orderbooks = symbols
 		o.orderbookHandler = handler
-	})
-}
-
-// WithCryptoPerpTrades configures initial perp trade symbols to subscribe to and the handler
-func WithCryptoPerpTrades(handler func(CryptoPerpTrade), symbols ...string) CryptoOption {
-	return newFuncCryptoOption(func(o *cryptoOptions) {
-		o.sub.trades = symbols
-		o.tradeHandler = func(trade CryptoTrade) {
-			handler(CryptoPerpTrade(trade))
-		}
-	})
-}
-
-// WithCryptoPerpQuotes configures initial perp quote symbols to subscribe to and the handler
-func WithCryptoPerpQuotes(handler func(CryptoPerpQuote), symbols ...string) CryptoOption {
-	return newFuncCryptoOption(func(o *cryptoOptions) {
-		o.sub.quotes = symbols
-		o.quoteHandler = func(quote CryptoQuote) {
-			handler(CryptoPerpQuote(quote))
-		}
-	})
-}
-
-// WithCryptoPerpBars configures initial perp bar symbols to subscribe to and the handler
-func WithCryptoPerpBars(handler func(CryptoPerpBar), symbols ...string) CryptoOption {
-	return newFuncCryptoOption(func(o *cryptoOptions) {
-		o.sub.bars = symbols
-		o.barHandler = func(bar CryptoBar) {
-			handler(CryptoPerpBar(bar))
-		}
-	})
-}
-
-// WithCryptoPerpUpdatedBars configures updated perp bar symbols to subscribe to and the handler
-func WithCryptoPerpUpdatedBars(handler func(CryptoPerpBar), symbols ...string) CryptoOption {
-	return newFuncCryptoOption(func(o *cryptoOptions) {
-		o.sub.updatedBars = symbols
-		o.updatedBarHandler = func(bar CryptoBar) {
-			handler(CryptoPerpBar(bar))
-		}
-	})
-}
-
-// WithCryptoPerpDailyBars configures daily perp bar symbols to subscribe to and the handler
-func WithCryptoPerpDailyBars(handler func(CryptoPerpBar), symbols ...string) CryptoOption {
-	return newFuncCryptoOption(func(o *cryptoOptions) {
-		o.sub.dailyBars = symbols
-		o.dailyBarHandler = func(bar CryptoBar) {
-			handler(CryptoPerpBar(bar))
-		}
-	})
-}
-
-// WithCryptoPerpOrderbooks configures initial perp orderbook symbols to subscribe to and the handler
-func WithCryptoPerpOrderbooks(handler func(CryptoPerpOrderbook), symbols ...string) CryptoOption {
-	return newFuncCryptoOption(func(o *cryptoOptions) {
-		o.sub.orderbooks = symbols
-		o.orderbookHandler = func(ob CryptoOrderbook) {
-			handler(CryptoPerpOrderbook(ob))
-		}
 	})
 }
 

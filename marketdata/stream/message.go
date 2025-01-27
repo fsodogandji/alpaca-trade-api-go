@@ -15,11 +15,13 @@ type msgHandler interface {
 	handleUpdatedBar(d *msgpack.Decoder, n int) error
 	handleDailyBar(d *msgpack.Decoder, n int) error
 	handleTradingStatus(d *msgpack.Decoder, n int) error
+	handleImbalance(d *msgpack.Decoder, n int) error
 	handleLULD(d *msgpack.Decoder, n int) error
 	handleCancelError(d *msgpack.Decoder, n int) error
 	handleCorrection(d *msgpack.Decoder, n int) error
 	handleOrderbook(d *msgpack.Decoder, n int) error
 	handleNews(d *msgpack.Decoder, n int) error
+	handleFuturesPricing(d *msgpack.Decoder, n int) error
 }
 
 func (c *client) handleMessage(b []byte) error {
@@ -81,6 +83,8 @@ func (c *client) handleMessageType(msgType string, d *msgpack.Decoder, n int) er
 		return c.handler.handleDailyBar(d, n)
 	case "s":
 		return c.handler.handleTradingStatus(d, n)
+	case "i":
+		return c.handler.handleImbalance(d, n)
 	case "l":
 		return c.handler.handleLULD(d, n)
 	case "x":
@@ -91,6 +95,8 @@ func (c *client) handleMessageType(msgType string, d *msgpack.Decoder, n int) er
 		return c.handler.handleOrderbook(d, n)
 	case "n":
 		return c.handler.handleNews(d, n)
+	case "p":
+		return c.handler.handleFuturesPricing(d, n)
 	case "subscription":
 		return c.handleSubscriptionMessage(d, n)
 	case msgTypeError:
@@ -108,6 +114,7 @@ type stocksMsgHandler struct {
 	updatedBarHandler    func(bar Bar)
 	dailyBarHandler      func(bar Bar)
 	tradingStatusHandler func(ts TradingStatus)
+	imbalanceHandler     func(ts Imbalance)
 	luldHandler          func(luld LULD)
 	cancelErrorHandler   func(tce TradeCancelError)
 	correctionHandler    func(tc TradeCorrection)
@@ -135,6 +142,8 @@ func (h *stocksMsgHandler) handleTrade(d *msgpack.Decoder, n int) error {
 			trade.Size, err = d.DecodeUint32()
 		case "t":
 			trade.Timestamp, err = d.DecodeTime()
+		case "r":
+			trade.internal.ReceivedAt, err = d.DecodeTime()
 		case "c":
 			trade.Conditions, err = decodeStringSlice(d)
 		case "z":
@@ -177,6 +186,8 @@ func (h *stocksMsgHandler) handleQuote(d *msgpack.Decoder, n int) error {
 			quote.AskSize, err = d.DecodeUint32()
 		case "t":
 			quote.Timestamp, err = d.DecodeTime()
+		case "r":
+			quote.internal.ReceivedAt, err = d.DecodeTime()
 		case "c":
 			quote.Conditions, err = decodeStringSlice(d)
 		case "z":
@@ -300,6 +311,36 @@ func (h *stocksMsgHandler) handleTradingStatus(d *msgpack.Decoder, n int) error 
 	handler := h.tradingStatusHandler
 	h.mu.RUnlock()
 	handler(ts)
+	return nil
+}
+
+func (h *stocksMsgHandler) handleImbalance(d *msgpack.Decoder, n int) error {
+	oi := Imbalance{}
+	for i := 0; i < n; i++ {
+		key, err := d.DecodeString()
+		if err != nil {
+			return err
+		}
+		switch key {
+		case "S":
+			oi.Symbol, err = d.DecodeString()
+		case "p":
+			oi.Price, err = d.DecodeFloat64()
+		case "t":
+			oi.Timestamp, err = d.DecodeTime()
+		case "z":
+			oi.Tape, err = d.DecodeString()
+		default:
+			err = d.Skip()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	h.mu.RLock()
+	handler := h.imbalanceHandler
+	h.mu.RUnlock()
+	handler(oi)
 	return nil
 }
 
@@ -431,14 +472,20 @@ func (h *stocksMsgHandler) handleNews(d *msgpack.Decoder, n int) error {
 	return discardMapContents(d, n)
 }
 
+func (h *stocksMsgHandler) handleFuturesPricing(d *msgpack.Decoder, n int) error {
+	// should not happen!
+	return discardMapContents(d, n)
+}
+
 type cryptoMsgHandler struct {
-	mu                sync.RWMutex
-	tradeHandler      func(trade CryptoTrade)
-	quoteHandler      func(quote CryptoQuote)
-	barHandler        func(bar CryptoBar)
-	updatedBarHandler func(bar CryptoBar)
-	dailyBarHandler   func(bar CryptoBar)
-	orderbookHandler  func(ob CryptoOrderbook)
+	mu                    sync.RWMutex
+	tradeHandler          func(CryptoTrade)
+	quoteHandler          func(CryptoQuote)
+	barHandler            func(CryptoBar)
+	updatedBarHandler     func(CryptoBar)
+	dailyBarHandler       func(CryptoBar)
+	orderbookHandler      func(CryptoOrderbook)
+	futuresPricingHandler func(CryptoPerpPricing)
 }
 
 var _ msgHandler = (*cryptoMsgHandler)(nil)
@@ -476,6 +523,44 @@ func (h *cryptoMsgHandler) handleTrade(d *msgpack.Decoder, n int) error {
 	tradeHandler := h.tradeHandler
 	h.mu.RUnlock()
 	tradeHandler(trade)
+	return nil
+}
+
+func (h *cryptoMsgHandler) handleFuturesPricing(d *msgpack.Decoder, n int) error {
+	pricing := CryptoPerpPricing{}
+	for i := 0; i < n; i++ {
+		key, err := d.DecodeString()
+		if err != nil {
+			return err
+		}
+		switch key {
+		case "S":
+			pricing.Symbol, err = d.DecodeString()
+		case "x":
+			pricing.Exchange, err = d.DecodeString()
+		case "ip":
+			pricing.IndexPrice, err = d.DecodeFloat64()
+		case "mp":
+			pricing.MarkPrice, err = d.DecodeFloat64()
+		case "fr":
+			pricing.FundingRate, err = d.DecodeFloat64()
+		case "oi":
+			pricing.OpenInterest, err = d.DecodeFloat64()
+		case "t":
+			pricing.Timestamp, err = d.DecodeTime()
+		case "ft":
+			pricing.NextFundingTime, err = d.DecodeTime()
+		default:
+			err = d.Skip()
+		}
+		if err != nil {
+			return err
+		}
+	}
+	h.mu.RLock()
+	pricingHandler := h.futuresPricingHandler
+	h.mu.RUnlock()
+	pricingHandler(pricing)
 	return nil
 }
 
@@ -628,6 +713,11 @@ func (h *cryptoMsgHandler) handleTradingStatus(d *msgpack.Decoder, n int) error 
 	return discardMapContents(d, n)
 }
 
+func (h *cryptoMsgHandler) handleImbalance(d *msgpack.Decoder, n int) error {
+	// should not happen!
+	return discardMapContents(d, n)
+}
+
 func (h *cryptoMsgHandler) handleLULD(d *msgpack.Decoder, n int) error {
 	// should not happen!
 	return discardMapContents(d, n)
@@ -750,6 +840,11 @@ func (h *optionsMsgHandler) handleTradingStatus(d *msgpack.Decoder, n int) error
 	return discardMapContents(d, n)
 }
 
+func (h *optionsMsgHandler) handleImbalance(d *msgpack.Decoder, n int) error {
+	// should not happen!
+	return discardMapContents(d, n)
+}
+
 func (h *optionsMsgHandler) handleLULD(d *msgpack.Decoder, n int) error {
 	// should not happen!
 	return discardMapContents(d, n)
@@ -771,6 +866,11 @@ func (h *optionsMsgHandler) handleOrderbook(d *msgpack.Decoder, n int) error {
 }
 
 func (h *optionsMsgHandler) handleNews(d *msgpack.Decoder, n int) error {
+	// should not happen!
+	return discardMapContents(d, n)
+}
+
+func (h *optionsMsgHandler) handleFuturesPricing(d *msgpack.Decoder, n int) error {
 	// should not happen!
 	return discardMapContents(d, n)
 }
@@ -808,6 +908,11 @@ func (h *newsMsgHandler) handleDailyBar(d *msgpack.Decoder, n int) error {
 }
 
 func (h *newsMsgHandler) handleTradingStatus(d *msgpack.Decoder, n int) error {
+	// should not happen!
+	return discardMapContents(d, n)
+}
+
+func (h *newsMsgHandler) handleImbalance(d *msgpack.Decoder, n int) error {
 	// should not happen!
 	return discardMapContents(d, n)
 }
@@ -872,6 +977,11 @@ func (h *newsMsgHandler) handleNews(d *msgpack.Decoder, n int) error {
 	return nil
 }
 
+func (h *newsMsgHandler) handleFuturesPricing(d *msgpack.Decoder, n int) error {
+	// should not happen!
+	return discardMapContents(d, n)
+}
+
 func discardMapContents(d *msgpack.Decoder, n int) error {
 	for i := 0; i < n; i++ {
 		// key
@@ -934,6 +1044,7 @@ var subMessageHandler = func(c *client, s subscriptions) error {
 	c.sub.updatedBars = s.updatedBars
 	c.sub.dailyBars = s.dailyBars
 	c.sub.statuses = s.statuses
+	c.sub.imbalances = s.imbalances
 	c.sub.lulds = s.lulds
 	c.sub.cancelErrors = s.cancelErrors
 	c.sub.corrections = s.corrections
@@ -968,6 +1079,8 @@ func (c *client) handleSubscriptionMessage(d *msgpack.Decoder, n int) error {
 			s.dailyBars, err = decodeStringSlice(d)
 		case "statuses":
 			s.statuses, err = decodeStringSlice(d)
+		case "imbalances":
+			s.imbalances, err = decodeStringSlice(d)
 		case "lulds":
 			s.lulds, err = decodeStringSlice(d)
 		case "cancelErrors":

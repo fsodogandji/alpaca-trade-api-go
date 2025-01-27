@@ -15,8 +15,10 @@ import (
 )
 
 const (
-	stocksTests = "stocks"
-	cryptoTests = "crypto"
+	stocksTests     = "stocks"
+	cryptoTests     = "crypto"
+	cryptoPerpTests = "crypto-perp"
+	perpBaseURL     = "wss://stream.data.alpaca.markets/v1beta1/crypto-perps"
 )
 
 var tests = []struct {
@@ -24,6 +26,7 @@ var tests = []struct {
 }{
 	{name: stocksTests},
 	{name: cryptoTests},
+	{name: cryptoPerpTests},
 }
 
 type streamClient interface {
@@ -49,6 +52,11 @@ func TestConnectFails(t *testing.T) {
 			case cryptoTests:
 				c = NewCryptoClient(
 					marketdata.US,
+					WithReconnectSettings(1, 0),
+					withConnCreator(connCreator))
+			case cryptoPerpTests:
+				c = NewCryptoClient(
+					marketdata.GLOBAL,
 					WithReconnectSettings(1, 0),
 					withConnCreator(connCreator))
 			}
@@ -83,6 +91,11 @@ func TestConnectWithInvalidURL(t *testing.T) {
 			case cryptoTests:
 				c = NewCryptoClient(
 					marketdata.US,
+					WithBaseURL("http://192.168.0.%31/"),
+					WithReconnectSettings(1, 0))
+			case cryptoPerpTests:
+				c = NewCryptoClient(
+					marketdata.GLOBAL,
 					WithBaseURL("http://192.168.0.%31/"),
 					WithReconnectSettings(1, 0))
 			}
@@ -127,6 +140,8 @@ func TestConnectImmediatelyFailsAfterIrrecoverableErrors(t *testing.T) {
 					c = NewStocksClient(marketdata.IEX, reconnectSettings, withConnCreator(connCreator))
 				case cryptoTests:
 					c = NewCryptoClient(marketdata.US, reconnectSettings, withConnCreator(connCreator))
+				case cryptoPerpTests:
+					c = NewCryptoClient(marketdata.GLOBAL, reconnectSettings, withConnCreator(connCreator))
 				}
 
 				// server welcomes the client
@@ -176,6 +191,11 @@ func TestContextCancelledBeforeConnect(t *testing.T) {
 					marketdata.US,
 					WithBaseURL("http://test.paca/v2"),
 					withConnCreator(connCreator))
+			case cryptoPerpTests:
+				c = NewCryptoClient(
+					marketdata.GLOBAL,
+					WithBaseURL("http://test.paca/v2"),
+					withConnCreator(connCreator))
 			}
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel()
@@ -204,6 +224,8 @@ func TestConnectSucceeds(t *testing.T) {
 				c = NewStocksClient(marketdata.IEX, withConnCreator(connCreator))
 			case cryptoTests:
 				c = NewCryptoClient(marketdata.US, withConnCreator(connCreator))
+			case cryptoPerpTests:
+				c = NewCryptoClient(marketdata.GLOBAL, withConnCreator(connCreator))
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -256,6 +278,11 @@ func TestCallbacksCalledOnConnectAndDisconnect(t *testing.T) {
 					withConnCreator(connCreator),
 					WithConnectCallback(connectCallback),
 					WithDisconnectCallback(disconnectCallback))
+			case cryptoPerpTests:
+				c = NewCryptoClient(marketdata.GLOBAL,
+					withConnCreator(connCreator),
+					WithConnectCallback(connectCallback),
+					WithDisconnectCallback(disconnectCallback))
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -301,6 +328,8 @@ func TestSubscribeBeforeConnectStocks(t *testing.T) {
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.SubscribeToStatuses(func(_ TradingStatus) {})
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.SubscribeToImbalances(func(_ Imbalance) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.SubscribeToLULDs(func(_ LULD) {})
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.UnsubscribeFromTrades()
@@ -312,6 +341,8 @@ func TestSubscribeBeforeConnectStocks(t *testing.T) {
 	err = c.UnsubscribeFromDailyBars()
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.UnsubscribeFromStatuses()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromImbalances()
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.UnsubscribeFromLULDs()
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
@@ -332,6 +363,8 @@ func TestSubscribeBeforeConnectCrypto(t *testing.T) {
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.SubscribeToOrderbooks(func(_ CryptoOrderbook) {})
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.SubscribeToPerpPricing(func(_ CryptoPerpPricing) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.UnsubscribeFromTrades()
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.UnsubscribeFromQuotes()
@@ -343,6 +376,8 @@ func TestSubscribeBeforeConnectCrypto(t *testing.T) {
 	err = c.UnsubscribeFromDailyBars()
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 	err = c.UnsubscribeFromOrderbooks()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromPerpPricing()
 	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
 }
 
@@ -942,6 +977,9 @@ func TestPingFails(t *testing.T) {
 			case cryptoTests:
 				c = NewCryptoClient(marketdata.US,
 					WithReconnectSettings(1, 0), withConnCreator(connCreator))
+			case cryptoPerpTests:
+				c = NewCryptoClient(marketdata.GLOBAL,
+					WithReconnectSettings(1, 0), withConnCreator(connCreator))
 			}
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -953,12 +991,17 @@ func TestPingFails(t *testing.T) {
 			// replacing connCreator with a new one that returns an error
 			// so connection will not be reestablished
 			connErr := errors.New("no connection")
+			//nolint:errcheck // False positive "error return value is not checked"
 			switch tt.name {
 			case stocksTests:
 				c.(*StocksClient).connCreator = func(_ context.Context, _ url.URL) (conn, error) {
 					return nil, connErr
 				}
 			case cryptoTests:
+				c.(*CryptoClient).connCreator = func(_ context.Context, _ url.URL) (conn, error) {
+					return nil, connErr
+				}
+			case cryptoPerpTests:
 				c.(*CryptoClient).connCreator = func(_ context.Context, _ url.URL) (conn, error) {
 					return nil, connErr
 				}
@@ -985,6 +1028,7 @@ func TestCoreFunctionalityStocks(t *testing.T) {
 		updatedBars: []string{"ALPACA"},
 		dailyBars:   []string{"LPACA"},
 		statuses:    []string{"ALPACA"},
+		imbalances:  []string{"ALPACA"},
 		lulds:       []string{"ALPACA"},
 	})
 
@@ -994,6 +1038,7 @@ func TestCoreFunctionalityStocks(t *testing.T) {
 	updatedBars := make(chan Bar, 10)
 	dailyBars := make(chan Bar, 10)
 	tradingStatuses := make(chan TradingStatus, 10)
+	imbalances := make(chan Imbalance, 10)
 	lulds := make(chan LULD, 10)
 	cancelErrors := make(chan TradeCancelError, 10)
 	corrections := make(chan TradeCorrection, 10)
@@ -1004,6 +1049,7 @@ func TestCoreFunctionalityStocks(t *testing.T) {
 		WithUpdatedBars(func(b Bar) { updatedBars <- b }, "ALPACA"),
 		WithDailyBars(func(b Bar) { dailyBars <- b }, "LPACA"),
 		WithStatuses(func(ts TradingStatus) { tradingStatuses <- ts }, "ALPACA"),
+		WithImbalances(func(i Imbalance) { imbalances <- i }, "ALPACA"),
 		WithLULDs(func(l LULD) { lulds <- l }, "ALPACA"),
 		WithCancelErrors(func(tce TradeCancelError) { cancelErrors <- tce }),
 		WithCorrections(func(tc TradeCorrection) { corrections <- tc }),
@@ -1064,6 +1110,15 @@ func TestCoreFunctionalityStocks(t *testing.T) {
 			StatusCode: "H",
 			ReasonCode: "T12",
 			Tape:       "C",
+		},
+	})
+	// sending an order imbalance
+	connection.readCh <- serializeToMsgpack(t, []interface{}{
+		imbalanceWithT{
+			Type:   "i",
+			Symbol: "ALPACA",
+			Price:  123.456,
+			Tape:   "C",
 		},
 	})
 	// sending a LULD
@@ -1150,6 +1205,13 @@ func TestCoreFunctionalityStocks(t *testing.T) {
 		assert.Equal(t, "T12", ts.ReasonCode)
 	case <-time.After(time.Second):
 		require.Fail(t, "no trading status received in time")
+	}
+
+	select {
+	case oi := <-imbalances:
+		assert.EqualValues(t, 123.456, oi.Price)
+	case <-time.After(time.Second):
+		require.Fail(t, "no imbalance received in time")
 	}
 
 	select {
@@ -1502,6 +1564,7 @@ func writeInitialFlowMessagesToConn(
 			UpdatedBars:  sub.updatedBars,
 			DailyBars:    sub.dailyBars,
 			Statuses:     sub.statuses,
+			Imbalances:   sub.imbalances,
 			LULDs:        sub.lulds,
 			CancelErrors: sub.trades, // Subscribe automatically.
 			Corrections:  sub.trades, // Subscribe automatically.
@@ -1533,6 +1596,7 @@ func checkInitialMessagesSentByClient(
 	require.ElementsMatch(t, sub.updatedBars, s["updatedBars"])
 	require.ElementsMatch(t, sub.dailyBars, s["dailyBars"])
 	require.ElementsMatch(t, sub.statuses, s["statuses"])
+	require.ElementsMatch(t, sub.imbalances, s["imbalances"])
 	require.ElementsMatch(t, sub.lulds, s["lulds"])
 	require.NotContains(t, s, "cancelErrors")
 	require.NotContains(t, s, "corrections")
@@ -1570,6 +1634,397 @@ func TestCryptoClientConstructURL(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			c := NewCryptoClient(
 				marketdata.US,
+				WithBaseURL(test.baseURL),
+			)
+			got, err := c.constructURL()
+			require.NoError(t, err)
+			assert.EqualValues(t, test.expected, got.String())
+		})
+	}
+}
+
+func TestSubscribeBeforeConnectCryptoPerp(t *testing.T) {
+	c := NewCryptoClient(marketdata.GLOBAL, WithBaseURL(perpBaseURL))
+
+	err := c.SubscribeToTrades(func(_ CryptoTrade) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.SubscribeToQuotes(func(_ CryptoQuote) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.SubscribeToBars(func(_ CryptoBar) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.SubscribeToUpdatedBars(func(_ CryptoBar) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.SubscribeToDailyBars(func(_ CryptoBar) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.SubscribeToOrderbooks(func(_ CryptoOrderbook) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.SubscribeToPerpPricing(func(_ CryptoPerpPricing) {})
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromTrades()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromQuotes()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromBars()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromUpdatedBars()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromDailyBars()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromOrderbooks()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+	err = c.UnsubscribeFromPerpPricing()
+	assert.Equal(t, ErrSubscriptionChangeBeforeConnect, err)
+}
+
+func TestSubscribeCalledButClientTerminatesCryptoPerp(t *testing.T) {
+	connection := newMockConn()
+	defer connection.close()
+	writeInitialFlowMessagesToConn(t, connection, subscriptions{})
+
+	c := NewCryptoClient(marketdata.GLOBAL,
+		WithBaseURL(perpBaseURL),
+		WithCredentials("my_key", "my_secret"),
+		withConnCreator(func(_ context.Context, _ url.URL) (conn, error) { return connection, nil }))
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := c.Connect(ctx)
+	require.NoError(t, err)
+
+	checkInitialMessagesSentByClient(t, connection, "my_key", "my_secret", c.sub)
+	subErrCh := make(chan error, 1)
+	subFunc := func() {
+		subErrCh <- c.SubscribeToTrades(func(_ CryptoTrade) {}, "BTC-PERP")
+	}
+
+	// calling Subscribe
+	go subFunc()
+	// making sure Subscribe got called
+	subMsg := expectWrite(t, connection)
+	require.Equal(t, "subscribe", subMsg["action"])
+	require.ElementsMatch(t, []string{"BTC-PERP"}, subMsg["trades"])
+	// terminating the client
+	cancel()
+
+	err = <-subErrCh
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSubscriptionChangeInterrupted)
+
+	// Subscribing after the client has terminated results in an error
+	err = c.SubscribeToQuotes(func(_ CryptoQuote) {}, "BTC-PERP")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSubscriptionChangeAfterTerminated)
+}
+
+func TestSubscribeFailsDueToErrorCryptoPerp(t *testing.T) {
+	connection := newMockConn()
+	defer connection.close()
+	writeInitialFlowMessagesToConn(t, connection, subscriptions{})
+
+	c := NewCryptoClient(marketdata.GLOBAL,
+		WithBaseURL(perpBaseURL),
+		WithCredentials("my_key", "my_secret"),
+		withConnCreator(func(_ context.Context, _ url.URL) (conn, error) {
+			return connection, nil
+		}))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// connect
+	err := c.Connect(ctx)
+	require.NoError(t, err)
+	checkInitialMessagesSentByClient(t, connection, "my_key", "my_secret", c.sub)
+
+	// attempting sub change
+	subRes := make(chan error)
+	subFunc := func() {
+		subRes <- c.SubscribeToTrades(func(_ CryptoTrade) {}, "BTC-PERP")
+	}
+	go subFunc()
+	// wait for message to be written
+	subMsg := expectWrite(t, connection)
+	require.Equal(t, "subscribe", subMsg["action"])
+	require.ElementsMatch(t, []string{"BTC-PERP"}, subMsg["trades"])
+
+	// sub change request fails
+	connection.readCh <- serializeToMsgpack(t, []errorWithT{
+		{
+			Type: msgTypeError,
+			Code: 405,
+			Msg:  "symbol limit exceeded",
+		},
+	})
+
+	// making sure the subscription request has failed
+	err = <-subRes
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSymbolLimitExceeded)
+
+	// attempting another sub change
+	go subFunc()
+	// wait for message to be written
+	subMsg = expectWrite(t, connection)
+	require.Equal(t, "subscribe", subMsg["action"])
+	require.ElementsMatch(t, []string{"BTC-PERP"}, subMsg["trades"])
+
+	// sub change request interrupted by slow client
+	connection.readCh <- serializeToMsgpack(t, []errorWithT{
+		{
+			Type: msgTypeError,
+			Code: 407,
+			Msg:  "slow client",
+		},
+	})
+
+	// making sure the subscription request has failed
+	err = <-subRes
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSlowClient)
+
+	// attempting another sub change
+	go subFunc()
+	// wait for message to be written
+	subMsg = expectWrite(t, connection)
+	require.Equal(t, "subscribe", subMsg["action"])
+	require.ElementsMatch(t, []string{"BTC-PERP"}, subMsg["trades"])
+
+	// sub change request fails due to incorrect due to incorrect subscription for feed
+	connection.readCh <- serializeToMsgpack(t, []errorWithT{
+		{
+			Type: msgTypeError,
+			Code: 410,
+			Msg:  "invalid subscribe action for this feed",
+		},
+	})
+
+	// making sure the subscription request has failed
+	err = <-subRes
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrSubscriptionChangeInvalidForFeed)
+}
+
+func TestCoreFunctionalityCryptoPerp(t *testing.T) {
+	connection := newMockConn()
+	defer connection.close()
+	writeInitialFlowMessagesToConn(t, connection, subscriptions{
+		trades:      []string{"BTC-PERP"},
+		quotes:      []string{"BTC-PERP"},
+		bars:        []string{"BTC-PERP"},
+		updatedBars: []string{"BTC-PERP"},
+		dailyBars:   []string{"BTC-PERP"},
+		orderbooks:  []string{"BTC-PERP"},
+		pricing:     []string{"BTC-PERP"},
+	})
+
+	trades := make(chan CryptoTrade, 10)
+	quotes := make(chan CryptoQuote, 10)
+	bars := make(chan CryptoBar, 10)
+	updatedBars := make(chan CryptoBar, 10)
+	dailyBars := make(chan CryptoBar, 10)
+	orderbooks := make(chan CryptoOrderbook, 10)
+	pricing := make(chan CryptoPerpPricing, 10)
+	c := NewCryptoClient(marketdata.GLOBAL,
+		WithBaseURL(perpBaseURL),
+		WithCryptoTrades(func(t CryptoTrade) { trades <- t }, "BTC-PERP"),
+		WithCryptoQuotes(func(q CryptoQuote) { quotes <- q }, "BTC-PERP"),
+		WithCryptoBars(func(b CryptoBar) { bars <- b }, "BTC-PERP"),
+		WithCryptoUpdatedBars(func(b CryptoBar) { updatedBars <- b }, "BTC-PERP"),
+		WithCryptoDailyBars(func(b CryptoBar) { dailyBars <- b }, "BTC-PERP"),
+		WithCryptoOrderbooks(func(ob CryptoOrderbook) { orderbooks <- ob }, "BTC-PERP"),
+		WithCryptoPerpPricing(func(p CryptoPerpPricing) { pricing <- p }, "BTC-PERP"),
+		withConnCreator(func(_ context.Context, _ url.URL) (conn, error) {
+			return connection, nil
+		}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// connecting with the client
+	err := c.Connect(ctx)
+	require.NoError(t, err)
+
+	// sending three bars and a quote
+	connection.readCh <- serializeToMsgpack(t, []interface{}{
+		cryptoBarWithT{
+			Type:       "b",
+			Symbol:     "BTC-PERP",
+			Exchange:   "PERP",
+			Volume:     10,
+			TradeCount: 3,
+			VWAP:       123.45,
+		},
+		cryptoBarWithT{
+			Type:       "d",
+			Symbol:     "BTC-PERP",
+			Exchange:   "PERP",
+			Open:       196.05,
+			High:       196.3,
+			TradeCount: 32,
+			VWAP:       196.21,
+		},
+		cryptoBarWithT{
+			Type:       "u",
+			Symbol:     "BTC-PERP",
+			Exchange:   "PERP",
+			TradeCount: 33,
+		},
+		cryptoQuoteWithT{
+			Type:     "q",
+			Symbol:   "BTC-PERP",
+			AskPrice: 2848.53,
+			AskSize:  3.12,
+			BidPrice: 2712.82,
+			BidSize:  3.982,
+			Exchange: "PERP",
+		},
+	})
+	// sending a trade
+	ts := time.Date(2021, 6, 2, 15, 12, 4, 3534, time.UTC)
+	connection.readCh <- serializeToMsgpack(t, []interface{}{
+		cryptoTradeWithT{
+			Type:      "t",
+			Symbol:    "BTC-PERP",
+			Timestamp: ts,
+			Exchange:  "PERP",
+			Price:     4123.123,
+			Size:      34.876,
+			ID:        25,
+			TakerSide: "S",
+		},
+	})
+	// sending an orderbook
+	connection.readCh <- serializeToMsgpack(t, []interface{}{
+		cryptoOrderbookWithT{
+			Type:     "o",
+			Symbol:   "BTC-PERP",
+			Exchange: "PERP",
+			Bids: []cryptoOrderbookEntry{
+				{Price: 111.1, Size: 222.2},
+				{Price: 333.3, Size: 444.4},
+			},
+			Asks: []cryptoOrderbookEntry{
+				{Price: 555.5, Size: 666.6},
+				{Price: 777.7, Size: 888.8},
+			},
+		},
+	})
+	// sending perp pricing
+	nft := time.Date(2021, 6, 2, 20, 12, 4, 3534, time.UTC)
+	connection.readCh <- serializeToMsgpack(t, []interface{}{
+		cryptoPerpPricingWithT{
+			Type:            "p",
+			Symbol:          "BTC-PERP",
+			Exchange:        "PERP",
+			Timestamp:       ts,
+			IndexPrice:      0.72817,
+			MarkPrice:       0.727576296,
+			FundingRate:     -0.000439065,
+			OpenInterest:    46795,
+			NextFundingTime: nft,
+		},
+	})
+
+	// checking contents
+	select {
+	case bar := <-bars:
+		assert.EqualValues(t, 10, bar.Volume)
+		assert.EqualValues(t, 3, bar.TradeCount)
+		assert.EqualValues(t, 123.45, bar.VWAP)
+		assert.Equal(t, "PERP", bar.Exchange)
+	case <-time.After(time.Second):
+		require.Fail(t, "no bar received in time")
+	}
+
+	select {
+	case bar := <-updatedBars:
+		assert.EqualValues(t, 33, bar.TradeCount)
+	case <-time.After(time.Second):
+		require.Fail(t, "no updated bar received in time")
+	}
+
+	select {
+	case dailyBar := <-dailyBars:
+		assert.EqualValues(t, 196.05, dailyBar.Open)
+		assert.EqualValues(t, 196.3, dailyBar.High)
+		assert.EqualValues(t, 32, dailyBar.TradeCount)
+		assert.EqualValues(t, 196.21, dailyBar.VWAP)
+		assert.Equal(t, "PERP", dailyBar.Exchange)
+	case <-time.After(time.Second):
+		require.Fail(t, "no daily bar received in time")
+	}
+
+	select {
+	case quote := <-quotes:
+		assert.Equal(t, "BTC-PERP", quote.Symbol)
+		assert.EqualValues(t, 2848.53, quote.AskPrice)
+		assert.EqualValues(t, 3.12, quote.AskSize)
+		assert.EqualValues(t, 3.982, quote.BidSize)
+		assert.EqualValues(t, "PERP", quote.Exchange)
+	case <-time.After(time.Second):
+		require.Fail(t, "no quote received in time")
+	}
+
+	select {
+	case trade := <-trades:
+		assert.True(t, trade.Timestamp.Equal(ts))
+		assert.EqualValues(t, "S", trade.TakerSide)
+	case <-time.After(time.Second):
+		require.Fail(t, "no trade received in time")
+	}
+
+	select {
+	case ob := <-orderbooks:
+		assert.Equal(t, "BTC-PERP", ob.Symbol)
+		assert.Len(t, ob.Bids, 2)
+		assert.Len(t, ob.Asks, 2)
+	case <-time.After(time.Second):
+		require.Fail(t, "no orderbook received in time")
+	}
+
+	select {
+	case p := <-pricing:
+		assert.Equal(t, "BTC-PERP", p.Symbol)
+		assert.EqualValues(t, 0.72817, p.IndexPrice)
+		assert.EqualValues(t, 0.727576296, p.MarkPrice)
+		assert.EqualValues(t, -0.000439065, p.FundingRate)
+		assert.EqualValues(t, 46795, p.OpenInterest)
+		assert.EqualValues(t, "PERP", p.Exchange)
+	case <-time.After(time.Second):
+		require.Fail(t, "no perp pricing received in time")
+	}
+}
+
+func TestCryptoPerpClientConstructURL(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		exchanges []string
+		baseURL   string
+		expected  string
+	}{
+		{
+			name:     "wss_noexchange",
+			baseURL:  "wss://test.example.com/test/crypto-perps",
+			expected: "wss://test.example.com/test/crypto-perps/global",
+		},
+		{
+			name:     "ws_noexchange",
+			baseURL:  "ws://test.example.com/test/crypto-perps",
+			expected: "ws://test.example.com/test/crypto-perps/global",
+		},
+		{
+			name:     "http_noexchange",
+			baseURL:  "http://test.example.com/test/crypto-perps",
+			expected: "ws://test.example.com/test/crypto-perps/global",
+		},
+		{
+			name:     "https_noexchange",
+			baseURL:  "https://test.example.com/test/crypto-perps",
+			expected: "wss://test.example.com/test/crypto-perps/global",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			c := NewCryptoClient(
+				marketdata.GLOBAL,
 				WithBaseURL(test.baseURL),
 			)
 			got, err := c.constructURL()

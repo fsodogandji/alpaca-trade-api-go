@@ -718,8 +718,10 @@ func (c *Client) GetSnapshots(symbols []string, req GetSnapshotRequest) (map[str
 	return snapshots, nil
 }
 
-const cryptoPrefix = "v1beta3/crypto"
-const cryptoPerpPrefix = "v1beta1/crypto-perps"
+const (
+	cryptoPrefix     = "v1beta3/crypto"
+	cryptoPerpPrefix = "v1beta1/crypto-perps"
+)
 
 type cryptoBaseRequest struct {
 	Symbols []string
@@ -1233,7 +1235,6 @@ func (c *Client) GetLatestCryptoQuotes(
 	symbols []string, req GetLatestCryptoQuoteRequest,
 ) (map[string]CryptoQuote, error) {
 	u, err := url.Parse(fmt.Sprintf("%s/latest/quotes", c.cryptoURL(req)))
-
 	if err != nil {
 		return nil, err
 	}
@@ -1252,6 +1253,56 @@ func (c *Client) GetLatestCryptoQuotes(
 		return nil, err
 	}
 	return latestQuotesResp.Quotes, nil
+}
+
+type GetLatestCryptoPerpPricingRequest struct {
+	CryptoFeed CryptoFeed
+	// This flag is used internally to access perpetual futures endpoints
+	perpetualFutures bool
+}
+
+func (r GetLatestCryptoPerpPricingRequest) cryptoFeed() CryptoFeed { return r.CryptoFeed }
+func (r GetLatestCryptoPerpPricingRequest) isPerp() bool           { return r.perpetualFutures }
+
+func (c *Client) GetLatestCryptoPerpPricing(
+	symbol string, req GetLatestCryptoPerpPricingRequest,
+) (*CryptoPerpPricing, error) {
+	req.perpetualFutures = true
+
+	resp, err := c.GetLatestCryptoPerpPricingData([]string{symbol}, req)
+	if err != nil {
+		return nil, err
+	}
+	pricing, ok := resp[symbol]
+	if !ok {
+		return nil, nil
+	}
+	return &pricing, nil
+}
+
+// GetLatestCryptoPerpPricingData returns the latest pricing data for the given perp symbols
+func (c *Client) GetLatestCryptoPerpPricingData(
+	symbols []string, req GetLatestCryptoPerpPricingRequest,
+) (map[string]CryptoPerpPricing, error) {
+	u, err := url.Parse(fmt.Sprintf("%s/latest/pricing", c.cryptoURL(req)))
+	if err != nil {
+		return nil, err
+	}
+	c.setLatestCryptoQueryRequest(u, cryptoBaseLatestRequest{
+		Symbols: symbols,
+	})
+
+	resp, err := c.get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer closeResp(resp)
+
+	var latestPricingResp latestCryptoPerpPricingResponse
+	if err = unmarshal(resp, &latestPricingResp); err != nil {
+		return nil, err
+	}
+	return latestPricingResp.Pricing, nil
 }
 
 type GetCryptoSnapshotRequest struct {
@@ -1449,7 +1500,7 @@ type GetCorporateActionsRequest struct {
 
 // GetCorporateActions returns the corporate actions based on the given req.
 func (c *Client) GetCorporateActions(req GetCorporateActionsRequest) (CorporateActions, error) {
-	u, err := url.Parse(fmt.Sprintf("%s/v1beta1/corporate-actions", c.opts.BaseURL))
+	u, err := url.Parse(fmt.Sprintf("%s/v1/corporate-actions", c.opts.BaseURL))
 	if err != nil {
 		return CorporateActions{}, err
 	}
@@ -1666,6 +1717,11 @@ func GetCryptoSnapshots(symbols []string, req GetCryptoSnapshotRequest) (map[str
 // GetLatestCryptoPerpTrade returns the latest trade for a given crypto perp symbol
 func GetLatestCryptoPerpTrade(symbol string, req GetLatestCryptoTradeRequest) (*CryptoPerpTrade, error) {
 	return DefaultClient.GetLatestCryptoPerpTrade(symbol, req)
+}
+
+// GetLatestCryptoPerpPricing returns the latest perp pricing for a given crypto perp symbol
+func GetLatestCryptoPerpPricing(symbol string, req GetLatestCryptoPerpPricingRequest) (*CryptoPerpPricing, error) {
+	return DefaultClient.GetLatestCryptoPerpPricing(symbol, req)
 }
 
 // GetLatestCryptoPerpTrades returns the latest trades for the given crypto perpetual futures
